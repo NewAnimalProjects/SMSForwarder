@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">SMSforwarder</string>
+    <string name="status_permission_granted">Разрешение на SMS выдано</string>
+    <string name="status_permission_denied">Нет разрешения на приём SMS</string>
+    <string name="permissions_summary">SMS: %1$s • SIM: %2$s</string>
+    <string name="permission_yes">есть</string>
+    <string name="permission_no">нет</string>
+    <string name="request_sms_permission">Выдать разрешения для SMS и SIM</string>
+    <string name="resend_all">Отправить все неотправленные</string>
+    <string name="main_description">Приложение пересылает входящие SMS в Telegram и хранит их в локальной базе.</string>
+    <string name="sms_counts">Всего SMS: %1$d • Не отправлено: %2$d</string>
+    <string name="sms_counts_placeholder">Всего SMS: 0 • Не отправлено: 0</string>
+    <string name="log_title">Журнал операций</string>
+    <string name="sim_info_header">SIM‑карты</string>
+    <string name="sim_info_permission_needed">Нет доступа к данным SIM (нужно разрешение телефона).</string>
+    <string name="sim_info_empty">SIM‑карты не найдены.</string>
+    <string name="sim_number_unknown">номер недоступен</string>
+</resources>
