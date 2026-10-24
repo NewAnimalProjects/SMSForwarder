@@ -15,4 +15,7 @@
     <string name="sim_info_permission_needed">Нет доступа к данным SIM (нужно разрешение телефона).</string>
     <string name="sim_info_empty">SIM‑карты не найдены.</string>
     <string name="sim_number_unknown">номер недоступен</string>
+    <string name="service_channel_name">Фоновая работа</string>
+    <string name="service_notification_title">Пересылка SMS активна</string>
+    <string name="service_notification_text">Приём SMS и контроль заряда батареи</string>
 </resources>

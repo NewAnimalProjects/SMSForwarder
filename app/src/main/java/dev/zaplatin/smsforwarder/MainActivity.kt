@@ -45,11 +45,14 @@ class MainActivity : ComponentActivity() {
             updateStatus()
         }
 
-    private val requiredPermissions = arrayOf(
-        Manifest.permission.RECEIVE_SMS,
-        Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_PHONE_NUMBERS
-    )
+    private val requiredPermissions = buildList {
+        add(Manifest.permission.RECEIVE_SMS)
+        add(Manifest.permission.READ_PHONE_STATE)
+        add(Manifest.permission.READ_PHONE_NUMBERS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }.toTypedArray()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,6 +104,7 @@ class MainActivity : ComponentActivity() {
         resendButton.isEnabled = hasSmsPermission
 
         if (hasSmsPermission) {
+            ForwarderService.start(this)
             requestIgnoreBatteryOptimizationsIfNeeded()
             enqueueResendAll()
         }

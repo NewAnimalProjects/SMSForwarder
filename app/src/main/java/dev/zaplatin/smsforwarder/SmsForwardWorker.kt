@@ -41,7 +41,8 @@ class SmsForwardWorker(
                 TelegramClient.sendSmsToTelegram(
                     from = message.from,
                     body = message.body,
-                    destinationNumber = message.destination
+                    destinationNumber = message.destination,
+                    receivedAt = message.createdAt,
                 )
                 dao.markSent(message.id)
                 OperationLogger.d(TAG, "Message ${message.id} marked as sent")

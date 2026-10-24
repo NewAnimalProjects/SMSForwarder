@@ -1,7 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     id("org.jetbrains.kotlin.kapt")
+}
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
@@ -16,6 +23,22 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Secrets stay in local.properties (git-ignored), see README.
+        buildConfigField(
+            "String",
+            "TELEGRAM_BOT_TOKEN",
+            "\"${localProperties.getProperty("telegram.botToken", "")}\"",
+        )
+        buildConfigField(
+            "String",
+            "TELEGRAM_CHAT_IDS",
+            "\"${localProperties.getProperty("telegram.chatIds", "")}\"",
+        )
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
@@ -33,6 +56,10 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+    installation {
+        // Grant all runtime permissions (SMS etc.) on install
+        installOptions += listOf("-g")
     }
 }
 

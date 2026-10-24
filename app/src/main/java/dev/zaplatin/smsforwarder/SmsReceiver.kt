@@ -12,7 +12,10 @@ import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -35,22 +38,57 @@ class SmsReceiver : BroadcastReceiver() {
         OperationLogger.d(TAG, "Parsed SMS from=$from length=${body.length}")
         val destinationNumber = resolveDestinationNumber(context, subId)
 
-        val smsId = runBlocking {
-            val dao = AppDatabase.getInstance(context).smsDao()
-            dao.insert(
-                SmsMessageEntity(
-                    from = from,
-                    body = body,
-                    createdAt = System.currentTimeMillis(),
-                    status = SmsStatus.PENDING,
-                    destination = destinationNumber,
-                    lastError = null
+        // Keep the receiver alive while we save the SMS and try to forward it right away.
+        // Sending from here does not depend on WorkManager, which battery saver may defer.
+        val pendingResult = goAsync()
+        receiverScope.launch {
+            try {
+                val dao = AppDatabase.getInstance(context).smsDao()
+                val receivedAt = System.currentTimeMillis()
+                val smsId = dao.insert(
+                    SmsMessageEntity(
+                        from = from,
+                        body = body,
+                        createdAt = receivedAt,
+                        status = SmsStatus.PENDING,
+                        destination = destinationNumber,
+                        lastError = null
+                    )
                 )
-            )
+                OperationLogger.d(TAG, "Inserted SMS row id=$smsId")
+                forwardNow(context, dao, smsId, from, body, destinationNumber, receivedAt)
+            } catch (e: Exception) {
+                OperationLogger.e(TAG, "Failed to store SMS", e)
+            } finally {
+                pendingResult.finish()
+            }
         }
+    }
 
-        OperationLogger.d(TAG, "Inserted SMS row id=$smsId")
-        enqueueForwardWorker(context, smsId)
+    private suspend fun forwardNow(
+        context: Context,
+        dao: SmsDao,
+        smsId: Long,
+        from: String,
+        body: String,
+        destinationNumber: String?,
+        receivedAt: Long,
+    ) {
+        try {
+            TelegramClient.sendSmsToTelegram(
+                from = from,
+                body = body,
+                destinationNumber = destinationNumber,
+                receivedAt = receivedAt,
+                timeoutMs = DIRECT_SEND_TIMEOUT_MS,
+            )
+            dao.markSent(smsId)
+            OperationLogger.d(TAG, "SMS id=$smsId forwarded directly")
+        } catch (e: Exception) {
+            OperationLogger.e(TAG, "Direct forward failed for id=$smsId, falling back to WorkManager", e)
+            dao.markFailed(smsId, e.message)
+            enqueueForwardWorker(context, smsId)
+        }
     }
 
     private fun enqueueForwardWorker(context: Context, smsId: Long) {
@@ -99,6 +137,9 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        // goAsync() allows ~10 s; leave headroom for the database work.
+        private const val DIRECT_SEND_TIMEOUT_MS = 7_000L
+        private val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private const val TAG = "SmsReceiver"
     }
 }

@@ -3,18 +3,28 @@ package dev.zaplatin.smsforwarder
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 
 object TelegramClient {
-    private const val BOT_TOKEN = "PUT_YOUR"
-    private val CHAT_IDS = listOf(
-        "PUT_YOUR",
-    )
+    // Configured via telegram.botToken / telegram.chatIds in local.properties.
+    private const val BOT_TOKEN = BuildConfig.TELEGRAM_BOT_TOKEN
+    private val CHAT_IDS = BuildConfig.TELEGRAM_CHAT_IDS
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
     private val client = OkHttpClient()
 
-    fun sendSmsToTelegram(from: String, body: String, destinationNumber: String?) {
-        require(!BOT_TOKEN.contains("PUT_YOUR")) { "Telegram bot token must be configured." }
-        require(CHAT_IDS.isNotEmpty()) { "At least one Telegram chat id must be configured." }
-        require(CHAT_IDS.none { it.contains("PUT_YOUR") }) { "Telegram chat ids must be configured." }
+    fun sendSmsToTelegram(
+        from: String,
+        body: String,
+        destinationNumber: String?,
+        receivedAt: Long,
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    ) {
         OperationLogger.d(TAG, "Sending SMS to Telegram from=$from bodyLength=${body.length} chats=${CHAT_IDS.size}")
 
         val text = buildString {
@@ -25,11 +35,36 @@ object TelegramClient {
                     .append(escapeMarkdown(destinationNumber))
                     .append('\n')
             }
+            append("*Получено:* ").append(formatReceivedAt(receivedAt)).append('\n')
             append("*Текст:*\n")
             append(escapeMarkdown(body))
         }
+        sendToAllChats(text, timeoutMs)
+    }
 
+    fun sendBatteryLowToTelegram(currentPercent: Int) {
+        val safePercent = currentPercent.coerceIn(0, 100)
+        val text = buildString {
+            append("\u26A0\uFE0F *Низкий заряд аккумулятора*\n")
+            append("*Текущий заряд:* ").append(safePercent).append("%\n")
+            append("Необходимо зарядить устройство.")
+        }
+        sendToAllChats(text, DEFAULT_TIMEOUT_MS)
+    }
+
+    /**
+     * Sends [text] to every configured chat. [timeoutMs] is the budget for all chats together,
+     * so callers with a hard deadline (e.g. a BroadcastReceiver) never block longer than that.
+     */
+    private fun sendToAllChats(text: String, timeoutMs: Long) {
+        require(BOT_TOKEN.isNotBlank()) { "Set telegram.botToken in local.properties." }
+        require(CHAT_IDS.isNotEmpty()) { "Set telegram.chatIds in local.properties." }
+
+        val deadline = System.currentTimeMillis() + timeoutMs
         CHAT_IDS.forEach { chatId ->
+            val remainingMs = deadline - System.currentTimeMillis()
+            check(remainingMs > 0) { "Telegram send timed out before chat=$chatId" }
+
             val bodyPayload = FormBody.Builder()
                 .add("chat_id", chatId)
                 .add("text", text)
@@ -41,7 +76,9 @@ object TelegramClient {
                 .post(bodyPayload)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            val call = client.newCall(request)
+            call.timeout().timeout(remainingMs, TimeUnit.MILLISECONDS)
+            call.execute().use { response ->
                 if (!response.isSuccessful) {
                     OperationLogger.e(TAG, "Telegram API error code=${response.code} chat=$chatId")
                     throw IllegalStateException("Telegram API error: ${response.code}")
@@ -51,38 +88,12 @@ object TelegramClient {
         }
     }
 
-    fun sendBatteryLowToTelegram(currentPercent: Int) {
-        require(!BOT_TOKEN.contains("PUT_YOUR")) { "Telegram bot token must be configured." }
-        require(CHAT_IDS.isNotEmpty()) { "At least one Telegram chat id must be configured." }
-        require(CHAT_IDS.none { it.contains("PUT_YOUR") }) { "Telegram chat ids must be configured." }
-
-        val safePercent = currentPercent.coerceIn(0, 100)
-        val text = buildString {
-            append("\u26A0\uFE0F *Низкий заряд аккумулятора*\n")
-            append("*Текущий заряд:* ").append(safePercent).append("%\n")
-            append("Необходимо зарядить устройство.")
-        }
-
-        CHAT_IDS.forEach { chatId ->
-            val bodyPayload = FormBody.Builder()
-                .add("chat_id", chatId)
-                .add("text", text)
-                .add("parse_mode", "Markdown")
-                .build()
-
-            val request = Request.Builder()
-                .url("https://api.telegram.org/bot$BOT_TOKEN/sendMessage")
-                .post(bodyPayload)
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    OperationLogger.e(TAG, "Telegram API error code=${response.code} chat=$chatId")
-                    throw IllegalStateException("Telegram API error: ${response.code}")
-                }
-                OperationLogger.d(TAG, "Telegram API success code=${response.code} chat=$chatId")
-            }
-        }
+    /** Device-local time, e.g. 25.10.2026 00:11:23. */
+    internal fun formatReceivedAt(millis: Long, timeZone: TimeZone = TimeZone.getDefault()): String {
+        // SimpleDateFormat is not thread-safe, so create one per call.
+        val format = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.ROOT)
+        format.timeZone = timeZone
+        return format.format(Date(millis))
     }
 
     private fun escapeMarkdown(value: String): String {
@@ -97,5 +108,6 @@ object TelegramClient {
             .replace(")", "\\)")
     }
 
+    private const val DEFAULT_TIMEOUT_MS = 60_000L
     private const val TAG = "TelegramClient"
 }
