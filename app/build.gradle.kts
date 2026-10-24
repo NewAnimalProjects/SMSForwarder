@@ -61,6 +61,11 @@ android {
         // Grant all runtime permissions (SMS etc.) on install
         installOptions += listOf("-g")
     }
+
+    testOptions {
+        // OperationLogger calls android.util.Log; return defaults instead of throwing in JVM tests.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -78,6 +83,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
 
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    // Android's org.json is a stub on the JVM; use the real implementation in tests.
+    testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
