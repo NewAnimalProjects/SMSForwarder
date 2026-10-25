@@ -67,8 +67,13 @@ class ForwarderService : Service() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         startedAt = System.currentTimeMillis()
-        getSystemService(ConnectivityManager::class.java)
-            .registerDefaultNetworkCallback(networkCallback)
+        try {
+            getSystemService(ConnectivityManager::class.java)
+                .registerDefaultNetworkCallback(networkCallback)
+        } catch (e: RuntimeException) {
+            // Without the callback the poller falls back to timed backoff.
+            OperationLogger.e(TAG, "registerDefaultNetworkCallback failed", e)
+        }
         startBotPolling()
     }
 
