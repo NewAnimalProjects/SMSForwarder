@@ -12,6 +12,9 @@ interface SmsDao {
     @Query("SELECT * FROM sms_messages WHERE id = :id")
     suspend fun getById(id: Long): SmsMessageEntity?
 
+    @Query("SELECT * FROM sms_messages ORDER BY created_at DESC LIMIT :limit")
+    suspend fun getLatest(limit: Int): List<SmsMessageEntity>
+
     @Query(
         "SELECT * FROM sms_messages WHERE status != :sentStatus AND created_at >= :minCreatedAt ORDER BY created_at ASC LIMIT :limit"
     )

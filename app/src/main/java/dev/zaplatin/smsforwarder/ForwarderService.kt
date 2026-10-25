@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -17,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +41,15 @@ class ForwarderService : Service() {
         }
     }
 
+    // No replay: the callback's initial onAvailable fires before any backoff and must not end it.
+    private val networkAvailable = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            networkAvailable.tryEmit(Unit)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         OperationLogger.d(TAG, "Service created")
@@ -54,6 +66,10 @@ class ForwarderService : Service() {
             IntentFilter(Intent.ACTION_BATTERY_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        startedAt = System.currentTimeMillis()
+        getSystemService(ConnectivityManager::class.java)
+            .registerDefaultNetworkCallback(networkCallback)
+        startBotPolling()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -61,11 +77,28 @@ class ForwarderService : Service() {
     override fun onDestroy() {
         OperationLogger.d(TAG, "Service destroyed")
         runCatching { unregisterReceiver(batteryReceiver) }
+        runCatching {
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback)
+        }
+        startedAt = null
         scope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun startBotPolling() {
+        val poller = BotUpdatePoller(
+            api = TelegramClient,
+            handleCommand = BotCommandHandler(AndroidDeviceStatusProvider(applicationContext))::handle,
+            commands = BotCommandHandler.COMMANDS,
+            offsetStore = SharedPreferencesOffsetStore(applicationContext),
+            authorizedChatIds = TelegramClient.authorizedChatIds,
+            clock = System::currentTimeMillis,
+            networkAvailable = networkAvailable,
+        )
+        scope.launch { poller.run() }
+    }
 
     private fun startInForeground() {
         val manager = getSystemService(NotificationManager::class.java)
@@ -105,6 +138,11 @@ class ForwarderService : Service() {
         private const val CHANNEL_ID = "forwarder_service"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "ForwarderService"
+
+        /** When the service entered the foreground; null while it is not running. */
+        @Volatile
+        var startedAt: Long? = null
+            private set
 
         /** Safe to call repeatedly; the system may refuse a start from the background. */
         fun start(context: Context) {

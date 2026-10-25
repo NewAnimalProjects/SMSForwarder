@@ -1,7 +1,6 @@
 package dev.zaplatin.smsforwarder
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -16,8 +15,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import android.telephony.SubscriptionManager
-import android.telephony.TelephonyManager
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
@@ -126,13 +123,6 @@ class MainActivity : ComponentActivity() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun hasPhoneNumberPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.READ_PHONE_NUMBERS
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
     private fun requestIgnoreBatteryOptimizationsIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val pm = getSystemService(PowerManager::class.java) ?: return
@@ -170,37 +160,17 @@ class MainActivity : ComponentActivity() {
             return
         }
         lifecycleScope.launch {
-            val sims = loadSimInfo()
+            val sims = withContext(Dispatchers.IO) { SimInfoReader.read(applicationContext) }
             if (sims.isEmpty()) {
                 simInfoText.text = getString(R.string.sim_info_empty)
             } else {
                 simInfoText.text = sims.joinToString(separator = "\n") { info ->
-                    val number = if (info.number.isNotBlank()) info.number else getString(R.string.sim_number_unknown)
+                    val number = info.number?.takeIf { it.isNotBlank() } ?: getString(R.string.sim_number_unknown)
                     "${info.label}: $number"
                 }
             }
         }
     }
-
-    @SuppressLint("MissingPermission")
-    private suspend fun loadSimInfo(): List<SimDisplayInfo> = withContext(Dispatchers.IO) {
-        val subscriptionManager = getSystemService(SubscriptionManager::class.java)
-        val telephonyManager = getSystemService(TelephonyManager::class.java)
-        val includeNumbers = hasPhoneNumberPermission()
-        val entries = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
-        entries.mapIndexed { index, info ->
-            val label = info.displayName?.toString()?.takeIf { it.isNotBlank() } ?: "SIM ${index + 1}"
-            val number = if (includeNumbers) {
-                info.number?.takeIf { it.isNotBlank() }
-                    ?: telephonyManager?.line1Number?.takeIf { !it.isNullOrBlank() }
-            } else {
-                null
-            }
-            SimDisplayInfo(label, number.orEmpty())
-        }
-    }
-
-    private data class SimDisplayInfo(val label: String, val number: String)
 
     companion object {
         private const val TAG = "MainActivity"
