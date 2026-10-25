@@ -11,6 +11,7 @@ Each SMS is forwarded straight from the receiver within a few seconds. If that f
 - Forwarding to multiple Telegram chats at once. Each message shows the sender, the SIM number that received the SMS, and the date and time the SMS arrived on the phone (see [Message format](#message-format)).
 - Automatic retries through WorkManager (`SmsForwardWorker`) on network or Telegram errors. Messages older than 7 days are marked as failed and no longer retried.
 - Low-battery alerts: `ForwarderService` reacts to every battery percentage change, and `BatteryMonitorWorker` re-checks every 15 minutes as a fallback. Telegram is notified when the charge drops to 50%, 20%, 15%, 10%, 5% and 2%. Each threshold fires once; alerts reset when the charge goes back above 50%.
+- Read-only Telegram bot commands (`/status`, `/battery`, `/last`, `/sims`, `/ping`, `/help`), see [Bot commands](#bot-commands).
 - Simple UI (`MainActivity`): permission requests (SMS, SIM, notifications), counts of stored/unsent messages, the list of SIM cards, and a live operation log.
 
 ## Message format
@@ -28,12 +29,28 @@ Forwarded SMS are sent with Telegram Markdown:
 - **На номер** is shown only when the SIM number can be read (requires phone permissions; some carriers do not expose it).
 - **Получено** is the moment the phone received the SMS (`created_at` in the database), in the phone's time zone. Retried messages keep their original time.
 
+## Bot commands
+The bot answers read-only commands from the chats listed in `telegram.chatIds`; messages from any other chat are ignored. `ForwarderService` long-polls Telegram (`getUpdates`), so replies arrive within a few seconds while the phone is online.
+
+| Command | Reply |
+|---|---|
+| `/status` | Battery, service uptime, total/unsent SMS, time of the last SMS |
+| `/battery` | Battery level and charging state |
+| `/last [N]` | The last N SMS (default 5, max 20); long texts are shortened |
+| `/sims` | SIM cards and their numbers |
+| `/ping` | `pong` and the phone's time |
+| `/help` | Command list (also sent for `/start`) |
+
+- Only commands sent within the last **5 minutes** are answered; commands queued while the phone was offline are skipped.
+- The command menu ("/" button in Telegram) is registered automatically.
+- The app must be the bot's only consumer: a webhook or another device polling the same bot makes Telegram return `409 Conflict`.
+
 ## Requirements
 - Android Studio with JDK 21 (the Gradle daemon toolchain is resolved automatically via Foojay).
 - Gradle 9.6, Android Gradle Plugin 9.4, Kotlin 2.2.
 - Min SDK 24, target/compile SDK 35.
 - Libraries: Room 2.8 (via kapt), WorkManager, OkHttp, kotlinx-coroutines-android, AndroidX Lifecycle.
-- Permissions: `RECEIVE_SMS`, `INTERNET`, `READ_PHONE_STATE`, `READ_PHONE_NUMBERS`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`.
+- Permissions: `RECEIVE_SMS`, `INTERNET`, `READ_PHONE_STATE`, `READ_PHONE_NUMBERS`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `ACCESS_NETWORK_STATE`.
 
 ## Configuration
 The bot token and chat IDs live in `local.properties` in the project root. The file is git-ignored, so secrets never reach the repository:
@@ -100,7 +117,10 @@ All sources are in `app/src/main/java/dev/zaplatin/smsforwarder`:
 - `BatteryAlerts` — shared low-battery threshold logic; state is kept in SharedPreferences.
 - `BatteryMonitorScheduler` / `BatteryMonitorWorker` — periodic (15 min) fallback battery check.
 - `TelegramClient` — OkHttp client for the Telegram Bot API; builds the message text and reads the token/chat IDs from `BuildConfig`.
+- `BotUpdatePoller` — long-polls `getUpdates`, filters by chat and freshness, backs off on errors; offset kept by `SharedPreferencesOffsetStore`.
+- `BotCommandHandler` — builds command replies from `DeviceStatusProvider` (`AndroidDeviceStatusProvider` on the device).
+- `SimInfoReader` — reads active SIM cards for the UI and the bot.
 - Room layer: `SmsMessageEntity`, `SmsDao`, `AppDatabase` (schema version 2, with migration adding the `destination` column).
 - `OperationLogger` — collects log entries shown on screen and in Logcat.
 
-Unit tests (`app/src/test`) cover the battery alert thresholds (`BatteryAlertsTest`) and the received-time formatting (`TelegramClientTest`).
+Unit tests (`app/src/test`) cover battery alert thresholds, received-time formatting, Bot API parsing, bot command replies, and the update poller.
