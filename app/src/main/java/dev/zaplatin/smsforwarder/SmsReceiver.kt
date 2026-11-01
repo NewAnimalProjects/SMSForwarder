@@ -38,13 +38,17 @@ class SmsReceiver : BroadcastReceiver() {
         OperationLogger.d(TAG, "Parsed SMS from=$from length=${body.length}")
         val destinationNumber = resolveDestinationNumber(context, subId)
 
+        val receivedAt = SmsTimestamp.receivedAt(
+            serviceCenterMillis = messages.first().timestampMillis,
+            nowMillis = System.currentTimeMillis(),
+        )
+
         // Keep the receiver alive while we save the SMS and try to forward it right away.
         // Sending from here does not depend on WorkManager, which battery saver may defer.
         val pendingResult = goAsync()
         receiverScope.launch {
             try {
                 val dao = AppDatabase.getInstance(context).smsDao()
-                val receivedAt = System.currentTimeMillis()
                 val smsId = dao.insert(
                     SmsMessageEntity(
                         from = from,
