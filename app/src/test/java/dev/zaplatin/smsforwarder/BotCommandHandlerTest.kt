@@ -44,6 +44,27 @@ class BotCommandHandlerTest {
     }
 
     @Test
+    fun status_whileLocked_skipsSmsHistory() = runTest {
+        status.unlocked = false
+
+        val reply = handler.handle("/status")
+
+        assertTrue(reply, reply.contains("*Батарея:* 76%, заряжается (USB)"))
+        assertTrue(reply, reply.contains("*Сервис работает:* 2 ч 15 мин"))
+        assertTrue(reply, reply.contains(BotCommandHandler.LOCKED_SMS_TEXT))
+        assertFalse(reply, reply.contains("*SMS всего:*"))
+        assertFalse(status.historyRead)
+    }
+
+    @Test
+    fun last_whileLocked_explainsUnavailability() = runTest {
+        status.unlocked = false
+
+        assertEquals(BotCommandHandler.LOCKED_SMS_TEXT, handler.handle("/last 3"))
+        assertFalse(status.historyRead)
+    }
+
+    @Test
     fun last_defaultsToFive() = runTest {
         handler.handle("/last")
         assertEquals(5, status.requestedLimit)
@@ -181,16 +202,23 @@ class BotCommandHandlerTest {
         var messages: List<SmsMessageEntity> = emptyList()
         var startedAt: Long? = NOW - (2 * 60 + 15) * 60_000L
         var requestedLimit: Int? = null
+        var unlocked = true
+        var historyRead = false
 
         override fun battery() = batteryStatus
         override fun sims() = simsResult
-        override suspend fun smsCounts() = 12 to 1
+        override suspend fun smsCounts(): Pair<Int, Int> {
+            historyRead = true
+            return 12 to 1
+        }
         override suspend fun lastSms(limit: Int): List<SmsMessageEntity> {
+            historyRead = true
             requestedLimit = limit
             return messages.take(limit)
         }
         override fun serviceStartedAt() = startedAt
         override fun now() = NOW
+        override fun isUserUnlocked() = unlocked
     }
 
     private companion object {

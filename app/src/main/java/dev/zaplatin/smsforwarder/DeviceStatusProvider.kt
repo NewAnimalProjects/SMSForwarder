@@ -12,6 +12,9 @@ interface DeviceStatusProvider {
     suspend fun lastSms(limit: Int): List<SmsMessageEntity>
     fun serviceStartedAt(): Long?
     fun now(): Long
+
+    /** False before the first unlock after a reboot: SMS history (Room) is not readable then. */
+    fun isUserUnlocked(): Boolean
 }
 
 data class BatteryStatus(

@@ -21,8 +21,6 @@ class BotCommandHandler(private val status: DeviceStatusProvider) {
     }
 
     private suspend fun statusReply(): String {
-        val (total, notSent) = status.smsCounts()
-        val last = status.lastSms(1).firstOrNull()
         val startedAt = status.serviceStartedAt()
         return buildString {
             append("📊 *Статус*\n")
@@ -30,6 +28,12 @@ class BotCommandHandler(private val status: DeviceStatusProvider) {
             append("*Сервис работает:* ")
                 .append(startedAt?.let { formatDuration(status.now() - it) } ?: "не запущен")
                 .append('\n')
+            if (!status.isUserUnlocked()) {
+                append(LOCKED_SMS_TEXT)
+                return@buildString
+            }
+            val (total, notSent) = status.smsCounts()
+            val last = status.lastSms(1).firstOrNull()
             append("*SMS всего:* ").append(total).append(", не отправлено: ").append(notSent).append('\n')
             append("*Последняя SMS:* ")
                 .append(last?.let { TelegramClient.formatReceivedAt(it.createdAt) } ?: "нет")
@@ -47,6 +51,7 @@ class BotCommandHandler(private val status: DeviceStatusProvider) {
     }
 
     private suspend fun lastReply(argument: String?): String {
+        if (!status.isUserUnlocked()) return LOCKED_SMS_TEXT
         val limit = if (argument == null) {
             DEFAULT_LAST_COUNT
         } else {
@@ -117,6 +122,7 @@ class BotCommandHandler(private val status: DeviceStatusProvider) {
         val HELP_TEXT = "Доступные команды:\n" +
             COMMANDS.joinToString("\n") { (name, description) -> "/$name — $description" }
         const val UNKNOWN_COMMAND_TEXT = "Неизвестная команда. /help — список команд"
+        const val LOCKED_SMS_TEXT = "🔒 История SMS недоступна до первой разблокировки телефона."
         const val LAST_USAGE_TEXT = "Использование: /last N, где N от 1 до 20"
 
         private const val DEFAULT_LAST_COUNT = 5

@@ -7,8 +7,9 @@ interface OffsetStore {
     var offset: Long?
 }
 
+/** Device-protected, so bot commands keep working before the first unlock after a reboot. */
 class SharedPreferencesOffsetStore(context: Context) : OffsetStore {
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs = DirectBoot.preferences(context, PREFS_NAME)
 
     override var offset: Long?
         get() = prefs.getLong(KEY_OFFSET, NO_OFFSET).takeIf { it != NO_OFFSET }

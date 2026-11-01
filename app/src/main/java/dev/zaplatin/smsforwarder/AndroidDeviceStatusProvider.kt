@@ -39,4 +39,6 @@ class AndroidDeviceStatusProvider(private val context: Context) : DeviceStatusPr
     override fun serviceStartedAt(): Long? = ForwarderService.startedAt
 
     override fun now(): Long = System.currentTimeMillis()
+
+    override fun isUserUnlocked(): Boolean = DirectBoot.isUserUnlocked(context)
 }

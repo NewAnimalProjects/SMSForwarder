@@ -129,6 +129,16 @@ object TelegramClient : TelegramBotApi {
         sendToAllChats(text, DEFAULT_TIMEOUT_MS)
     }
 
+    fun sendLockedBootNoticeToTelegram() {
+        val text = buildString {
+            append("\uD83D\uDD04 *Телефон перезагрузился*\n")
+            append("Сервис запущен, но телефон ещё не разблокирован. ")
+            append("Новые SMS будут пересланы после первой разблокировки. ")
+            append("Команды бота и уведомления о заряде работают.")
+        }
+        sendToAllChats(text, DEFAULT_TIMEOUT_MS)
+    }
+
     /**
      * Sends [text] to every configured chat. [timeoutMs] is the budget for all chats together,
      * so callers with a hard deadline (e.g. a BroadcastReceiver) never block longer than that.

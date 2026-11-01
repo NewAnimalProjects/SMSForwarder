@@ -9,7 +9,7 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Low-battery alert logic shared by [BatteryMonitorWorker] (periodic fallback) and
- * [ForwarderService] (real-time). State lives in SharedPreferences; the mutex keeps both
+ * [ForwarderService] (real-time). State lives in device-protected SharedPreferences (works before the first unlock); the mutex keeps both
  * callers from sending the same alert twice.
  */
 object BatteryAlerts {
@@ -23,7 +23,7 @@ object BatteryAlerts {
 
     /** Returns false when an alert could not be sent and the check should be retried. */
     suspend fun process(context: Context, percent: Int): Boolean = mutex.withLock {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = DirectBoot.preferences(context, PREFS_NAME)
         val lastNotified = prefs.getInt(KEY_LAST_NOTIFIED_THRESHOLD, RESET_THRESHOLD)
 
         if (percent >= RESET_THRESHOLD) {

@@ -75,6 +75,10 @@ class ForwarderService : Service() {
             OperationLogger.e(TAG, "registerDefaultNetworkCallback failed", e)
         }
         startBotPolling()
+        if (!DirectBoot.isUserUnlocked(this)) {
+            OperationLogger.d(TAG, "Running before first unlock")
+            scope.launch { LockedBootNotice.sendIfNeeded(applicationContext, networkAvailable) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY

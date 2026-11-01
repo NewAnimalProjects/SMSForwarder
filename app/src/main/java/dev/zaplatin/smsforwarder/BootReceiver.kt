@@ -4,14 +4,25 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/** Restarts [ForwarderService] after a reboot or an app update. */
+/**
+ * Restarts [ForwarderService] after a reboot or an app update. LOCKED_BOOT_COMPLETED arrives
+ * before the first unlock (Direct Boot); BOOT_COMPLETED only after it.
+ */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
-        val action = intent?.action ?: return
-        if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        OperationLogger.d(TAG, "Received $action, starting service")
-        ForwarderService.start(context)
+        when (val action = intent?.action) {
+            Intent.ACTION_LOCKED_BOOT_COMPLETED -> {
+                OperationLogger.d(TAG, "Received $action, starting service before unlock")
+                ForwarderService.start(context)
+            }
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                OperationLogger.d(TAG, "Received $action, starting service")
+                // The process may have started before unlock and skipped this in SmsForwarderApp.
+                BatteryMonitorScheduler.schedule(context)
+                ForwarderService.start(context)
+            }
+        }
     }
 
     companion object {
