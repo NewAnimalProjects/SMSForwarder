@@ -1,12 +1,14 @@
 package dev.zaplatin.smsforwarder
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.view.View
 import android.provider.Settings
 import android.widget.Button
 import android.widget.ScrollView
@@ -32,6 +34,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var logText: TextView
     private lateinit var logScroll: ScrollView
     private lateinit var simInfoText: TextView
+    private lateinit var directBootWarningText: TextView
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -62,6 +65,7 @@ class MainActivity : ComponentActivity() {
         logText = findViewById(R.id.logText)
         logScroll = findViewById(R.id.logScroll)
         simInfoText = findViewById(R.id.simInfoText)
+        directBootWarningText = findViewById(R.id.directBootWarningText)
 
         lifecycleScope.launch {
             OperationLogger.logs.collectLatest { entries ->
@@ -107,6 +111,14 @@ class MainActivity : ComponentActivity() {
         }
         refreshCounts()
         refreshSimInfo()
+        refreshDirectBootWarning()
+    }
+
+    /** With a secure lock screen the platform holds SMS until the first unlock after a reboot. */
+    private fun refreshDirectBootWarning() {
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        val isDeviceSecure = keyguard?.isDeviceSecure == true
+        directBootWarningText.visibility = if (isDeviceSecure) View.VISIBLE else View.GONE
     }
 
     private fun hasSmsPermission(): Boolean {
