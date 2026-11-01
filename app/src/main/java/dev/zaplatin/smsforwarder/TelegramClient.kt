@@ -129,14 +129,19 @@ object TelegramClient : TelegramBotApi {
         sendToAllChats(text, DEFAULT_TIMEOUT_MS)
     }
 
-    fun sendLockedBootNoticeToTelegram() {
-        val text = buildString {
-            append("\uD83D\uDD04 *Телефон перезагрузился*\n")
+    fun sendBootNoticeToTelegram(userUnlocked: Boolean) {
+        sendToAllChats(bootNoticeText(userUnlocked), DEFAULT_TIMEOUT_MS)
+    }
+
+    internal fun bootNoticeText(userUnlocked: Boolean): String = buildString {
+        append("\uD83D\uDD04 *Телефон перезагрузился*\n")
+        if (userUnlocked) {
+            append("Сервис запущен, пересылка SMS работает.")
+        } else {
             append("Сервис запущен, но телефон ещё не разблокирован. ")
             append("Новые SMS будут пересланы после первой разблокировки. ")
             append("Команды бота и уведомления о заряде работают.")
         }
-        sendToAllChats(text, DEFAULT_TIMEOUT_MS)
     }
 
     /**

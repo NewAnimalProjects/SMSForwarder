@@ -11,21 +11,21 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
-        when (val action = intent?.action) {
-            Intent.ACTION_LOCKED_BOOT_COMPLETED -> {
-                OperationLogger.d(TAG, "Received $action, starting service before unlock")
-                ForwarderService.start(context)
-            }
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                OperationLogger.d(TAG, "Received $action, starting service")
-                // The process may have started before unlock and skipped this in SmsForwarderApp.
-                BatteryMonitorScheduler.schedule(context)
-                ForwarderService.start(context)
-            }
+        val action = intent?.action ?: return
+        if (action != Intent.ACTION_MY_PACKAGE_REPLACED && !isBootAction(action)) return
+        OperationLogger.d(TAG, "Received $action, starting service")
+        if (action != Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            // The process may have started before unlock and skipped this in SmsForwarderApp.
+            BatteryMonitorScheduler.schedule(context)
         }
+        ForwarderService.start(context, afterBoot = isBootAction(action))
     }
 
     companion object {
         private const val TAG = "BootReceiver"
+
+        /** Both arrive on every boot (LOCKED_ first); the service dedupes the notice. */
+        internal fun isBootAction(action: String): Boolean =
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED || action == Intent.ACTION_BOOT_COMPLETED
     }
 }

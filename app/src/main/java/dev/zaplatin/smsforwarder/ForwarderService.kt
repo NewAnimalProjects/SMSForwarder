@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,6 +31,7 @@ class ForwarderService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lastPercent = -1
+    private var bootNoticeJob: Job? = null
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -75,13 +77,18 @@ class ForwarderService : Service() {
             OperationLogger.e(TAG, "registerDefaultNetworkCallback failed", e)
         }
         startBotPolling()
-        if (!DirectBoot.isUserUnlocked(this)) {
-            OperationLogger.d(TAG, "Running before first unlock")
-            scope.launch { LockedBootNotice.sendIfNeeded(applicationContext, networkAvailable) }
-        }
+        if (!DirectBoot.isUserUnlocked(this)) OperationLogger.d(TAG, "Running before first unlock")
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra(EXTRA_AFTER_BOOT, false) == true) sendBootNotice()
+        return START_STICKY
+    }
+
+    private fun sendBootNotice() {
+        if (bootNoticeJob?.isActive == true) return
+        bootNoticeJob = scope.launch { BootNotice.sendIfNeeded(applicationContext, networkAvailable) }
+    }
 
     override fun onDestroy() {
         OperationLogger.d(TAG, "Service destroyed")
@@ -147,18 +154,23 @@ class ForwarderService : Service() {
         private const val CHANNEL_ID = "forwarder_service"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "ForwarderService"
+        private const val EXTRA_AFTER_BOOT = "after_boot"
 
         /** When the service entered the foreground; null while it is not running. */
         @Volatile
         var startedAt: Long? = null
             private set
 
-        /** Safe to call repeatedly; the system may refuse a start from the background. */
-        fun start(context: Context) {
+        /**
+         * Safe to call repeatedly; the system may refuse a start from the background.
+         * [afterBoot] makes the service tell Telegram that the phone rebooted.
+         */
+        fun start(context: Context, afterBoot: Boolean = false) {
             try {
                 ContextCompat.startForegroundService(
                     context,
-                    Intent(context, ForwarderService::class.java),
+                    Intent(context, ForwarderService::class.java)
+                        .putExtra(EXTRA_AFTER_BOOT, afterBoot),
                 )
             } catch (e: Exception) {
                 OperationLogger.e(TAG, "Unable to start service", e)
