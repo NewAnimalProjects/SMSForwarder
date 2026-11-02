@@ -8,10 +8,7 @@ import android.content.pm.PackageManager
 import android.provider.Telephony
 import android.telephony.SubscriptionManager
 import androidx.core.content.ContextCompat
-import androidx.work.Data
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,7 +57,7 @@ class SmsReceiver : BroadcastReceiver() {
                     )
                 )
                 OperationLogger.d(TAG, "Inserted SMS row id=$smsId")
-                forwardNow(context, dao, smsId, from, body, destinationNumber, receivedAt)
+                forwardNow(context, smsId)
             } catch (e: Exception) {
                 OperationLogger.e(TAG, "Failed to store SMS", e)
             } finally {
@@ -69,47 +66,16 @@ class SmsReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun forwardNow(
-        context: Context,
-        dao: SmsDao,
-        smsId: Long,
-        from: String,
-        body: String,
-        destinationNumber: String?,
-        receivedAt: Long,
-    ) {
+    private suspend fun forwardNow(context: Context, smsId: Long) {
         try {
-            TelegramClient.sendSmsToTelegram(
-                from = from,
-                body = body,
-                destinationNumber = destinationNumber,
-                receivedAt = receivedAt,
-                timeoutMs = DIRECT_SEND_TIMEOUT_MS,
-            )
-            dao.markSent(smsId)
+            SmsForwarding.delivery(context).deliver(smsId, DIRECT_SEND_TIMEOUT_MS)
             OperationLogger.d(TAG, "SMS id=$smsId forwarded directly")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             OperationLogger.e(TAG, "Direct forward failed for id=$smsId, falling back to WorkManager", e)
-            dao.markFailed(smsId, e.message)
-            enqueueForwardWorker(context, smsId)
-        }
-    }
-
-    private fun enqueueForwardWorker(context: Context, smsId: Long) {
-        runCatching {
-            val data = Data.Builder()
-                .putLong(SmsForwardWorker.KEY_SMS_ID, smsId)
-                .build()
-
-            val work = OneTimeWorkRequestBuilder<SmsForwardWorker>()
-                .setInputData(data)
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .build()
-
-            OperationLogger.d(TAG, "Enqueuing SmsForwardWorker for id=$smsId work=${work.id}")
-            WorkManager.getInstance(context).enqueue(work)
-        }.getOrElse { throwable ->
-            OperationLogger.e(TAG, "Failed to enqueue worker", throwable)
+            runCatching { SmsForwardWorker.enqueue(context) }
+                .onFailure { OperationLogger.e(TAG, "Failed to enqueue worker", it) }
         }
     }
 

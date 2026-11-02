@@ -17,9 +17,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -149,11 +146,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enqueueResendAll() {
-        val work = OneTimeWorkRequestBuilder<SmsForwardWorker>()
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
-        OperationLogger.d(TAG, "Enqueuing resend worker: ${work.id}")
-        WorkManager.getInstance(this).enqueue(work)
+        SmsForwardWorker.enqueue(this)
     }
 
     private fun refreshCounts() {

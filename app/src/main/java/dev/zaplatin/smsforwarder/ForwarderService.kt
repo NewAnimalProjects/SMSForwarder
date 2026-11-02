@@ -48,6 +48,7 @@ class ForwarderService : Service() {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            TelegramClient.resetConnections()
             networkAvailable.tryEmit(Unit)
         }
     }

@@ -33,6 +33,9 @@ interface SmsDao {
     @Query("UPDATE sms_messages SET status = :sentStatus, last_error = NULL WHERE id = :id")
     suspend fun markSent(id: Long, sentStatus: String = SmsStatus.SENT)
 
+    @Query("UPDATE sms_messages SET delivered_chats = :chats WHERE id = :id")
+    suspend fun setDeliveredChats(id: Long, chats: String)
+
     @Query("UPDATE sms_messages SET status = :failedStatus, last_error = :error WHERE id = :id")
     suspend fun markFailed(id: Long, error: String?, failedStatus: String = SmsStatus.FAILED)
 }

@@ -26,7 +26,10 @@ object TelegramClient : TelegramBotApi {
         .split(',')
         .map { it.trim() }
         .filter { it.isNotEmpty() }
-    private val client = OkHttpClient()
+    // HTTP/2 pings detect a dead pooled connection instead of letting a request hang on it.
+    private val client = OkHttpClient.Builder()
+        .pingInterval(PING_INTERVAL_SEC, TimeUnit.SECONDS)
+        .build()
 
     // getUpdates holds the request open for up to 50 s, longer than OkHttp's default 10 s read timeout.
     private val pollingClient by lazy {
@@ -37,6 +40,9 @@ object TelegramClient : TelegramBotApi {
 
     val authorizedChatIds: Set<String>
         get() = CHAT_IDS.toSet()
+
+    val chatIds: List<String>
+        get() = CHAT_IDS
 
     override suspend fun getUpdates(offset: Long?, timeoutSec: Int): List<BotMessage> {
         val form = FormBody.Builder()
@@ -95,28 +101,16 @@ object TelegramClient : TelegramBotApi {
         })
     }
 
-    fun sendSmsToTelegram(
-        from: String,
-        body: String,
-        destinationNumber: String?,
-        receivedAt: Long,
-        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
-    ) {
-        OperationLogger.d(TAG, "Sending SMS to Telegram from=$from bodyLength=${body.length} chats=${CHAT_IDS.size}")
-
-        val text = buildString {
-            append("\uD83D\uDCE9 *Новая SMS*\n")
-            append("*От:* ").append(escapeMarkdown(from)).append('\n')
-            if (!destinationNumber.isNullOrBlank()) {
-                append("*На номер:* ")
-                    .append(escapeMarkdown(destinationNumber))
-                    .append('\n')
-            }
-            append("*Получено:* ").append(formatReceivedAt(receivedAt)).append('\n')
-            append("*Текст:*\n")
-            append(escapeMarkdown(body))
+    /** Telegram text for a stored SMS. */
+    internal fun smsText(sms: SmsMessageEntity): String = buildString {
+        append("\uD83D\uDCE9 *Новая SMS*\n")
+        append("*От:* ").append(escapeMarkdown(sms.from)).append('\n')
+        if (!sms.destination.isNullOrBlank()) {
+            append("*На номер:* ").append(escapeMarkdown(sms.destination)).append('\n')
         }
-        sendToAllChats(text, timeoutMs)
+        append("*Получено:* ").append(formatReceivedAt(sms.createdAt)).append('\n')
+        append("*Текст:*\n")
+        append(escapeMarkdown(sms.body))
     }
 
     fun sendBatteryLowToTelegram(currentPercent: Int) {
@@ -149,35 +143,49 @@ object TelegramClient : TelegramBotApi {
      * so callers with a hard deadline (e.g. a BroadcastReceiver) never block longer than that.
      */
     private fun sendToAllChats(text: String, timeoutMs: Long) {
-        require(BOT_TOKEN.isNotBlank()) { "Set telegram.botToken in local.properties." }
         require(CHAT_IDS.isNotEmpty()) { "Set telegram.chatIds in local.properties." }
 
         val deadline = System.currentTimeMillis() + timeoutMs
         CHAT_IDS.forEach { chatId ->
             val remainingMs = deadline - System.currentTimeMillis()
             check(remainingMs > 0) { "Telegram send timed out before chat=$chatId" }
-
-            val bodyPayload = FormBody.Builder()
-                .add("chat_id", chatId)
-                .add("text", text)
-                .add("parse_mode", "Markdown")
-                .build()
-
-            val request = Request.Builder()
-                .url("https://api.telegram.org/bot$BOT_TOKEN/sendMessage")
-                .post(bodyPayload)
-                .build()
-
-            val call = client.newCall(request)
-            call.timeout().timeout(remainingMs, TimeUnit.MILLISECONDS)
-            call.execute().use { response ->
-                if (!response.isSuccessful) {
-                    OperationLogger.e(TAG, "Telegram API error code=${response.code} chat=$chatId")
-                    throw IllegalStateException("Telegram API error: ${response.code}")
-                }
-                OperationLogger.d(TAG, "Telegram API success code=${response.code} chat=$chatId")
-            }
+            sendTextToChat(chatId, text, remainingMs)
         }
+    }
+
+    /** Blocking sendMessage to one chat; [timeoutMs] bounds the whole call. */
+    fun sendTextToChat(chatId: String, text: String, timeoutMs: Long) {
+        require(BOT_TOKEN.isNotBlank()) { "Set telegram.botToken in local.properties." }
+        val bodyPayload = FormBody.Builder()
+            .add("chat_id", chatId)
+            .add("text", text)
+            .add("parse_mode", "Markdown")
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.telegram.org/bot$BOT_TOKEN/sendMessage")
+            .post(bodyPayload)
+            .build()
+
+        val call = client.newCall(request)
+        call.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
+        call.execute().use { response ->
+            if (!response.isSuccessful) {
+                OperationLogger.e(TAG, "Telegram API error code=${response.code} chat=$chatId")
+                throw IllegalStateException("Telegram API error: ${response.code}")
+            }
+            OperationLogger.d(TAG, "Telegram API success code=${response.code} chat=$chatId")
+        }
+    }
+
+    /**
+     * Drops pooled connections after a network change. A request written to a connection that
+     * died while the phone slept times out after Telegram may already have delivered it,
+     * which is what turned retries into duplicates.
+     */
+    fun resetConnections() {
+        client.connectionPool.evictAll()
+        OperationLogger.d(TAG, "Connection pool reset")
     }
 
     /** Device-local time, e.g. 25.10.2026 00:11:23. */
@@ -202,5 +210,6 @@ object TelegramClient : TelegramBotApi {
 
     private const val DEFAULT_TIMEOUT_MS = 60_000L
     private const val LONG_POLL_READ_TIMEOUT_SEC = 60L
+    private const val PING_INTERVAL_SEC = 30L
     private const val TAG = "TelegramClient"
 }

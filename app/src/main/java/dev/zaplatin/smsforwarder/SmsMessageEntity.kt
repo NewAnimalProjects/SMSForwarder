@@ -19,8 +19,14 @@ data class SmsMessageEntity(
     @ColumnInfo(name = "destination")
     val destination: String? = null,
     @ColumnInfo(name = "last_error")
-    val lastError: String?
-)
+    val lastError: String?,
+    /** Comma-separated chat ids that already got this SMS; retries skip them. */
+    @ColumnInfo(name = "delivered_chats", defaultValue = "")
+    val deliveredChats: String = "",
+) {
+    fun deliveredChatIds(): Set<String> =
+        deliveredChats.split(',').filter { it.isNotEmpty() }.toSet()
+}
 
 object SmsStatus {
     const val PENDING = "PENDING"
