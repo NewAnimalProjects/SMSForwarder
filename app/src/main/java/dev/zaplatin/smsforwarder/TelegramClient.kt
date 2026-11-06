@@ -4,11 +4,17 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionPool
 import okhttp3.FormBody
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
+import okio.BufferedSink
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -43,6 +49,38 @@ object TelegramClient : TelegramBotApi {
 
     val chatIds: List<String>
         get() = CHAT_IDS
+
+    /**
+     * Client for sendMessage, which is not idempotent. Every send opens a fresh HTTP/1.1
+     * connection: a pooled one may have died while the phone slept, and a request written to
+     * it can reach Telegram while the response never comes back.
+     */
+    internal val sendClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .build()
+    }
+
+    internal fun sendMessageRequest(url: HttpUrl, chatId: String, text: String): Request {
+        val form = FormBody.Builder()
+            .add("chat_id", chatId)
+            .add("text", text)
+            .add("parse_mode", "Markdown")
+            .build()
+        return Request.Builder().url(url).post(OneShotBody(form)).build()
+    }
+
+    /**
+     * Marks the body one-shot so OkHttp never resends it on its own after it was written
+     * (it still retries other routes when connecting fails, before anything was sent).
+     */
+    private class OneShotBody(private val delegate: RequestBody) : RequestBody() {
+        override fun contentType(): MediaType? = delegate.contentType()
+        override fun contentLength(): Long = delegate.contentLength()
+        override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
+        override fun isOneShot(): Boolean = true
+    }
 
     override suspend fun getUpdates(offset: Long?, timeoutSec: Int): List<BotMessage> {
         val form = FormBody.Builder()
@@ -156,18 +194,8 @@ object TelegramClient : TelegramBotApi {
     /** Blocking sendMessage to one chat; [timeoutMs] bounds the whole call. */
     fun sendTextToChat(chatId: String, text: String, timeoutMs: Long) {
         require(BOT_TOKEN.isNotBlank()) { "Set telegram.botToken in local.properties." }
-        val bodyPayload = FormBody.Builder()
-            .add("chat_id", chatId)
-            .add("text", text)
-            .add("parse_mode", "Markdown")
-            .build()
-
-        val request = Request.Builder()
-            .url("https://api.telegram.org/bot$BOT_TOKEN/sendMessage")
-            .post(bodyPayload)
-            .build()
-
-        val call = client.newCall(request)
+        val url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage".toHttpUrl()
+        val call = sendClient.newCall(sendMessageRequest(url, chatId, text))
         call.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
         call.execute().use { response ->
             if (!response.isSuccessful) {

@@ -84,6 +84,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     // Android's org.json is a stub on the JVM; use the real implementation in tests.
     testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.junit)
